@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon FSS — SRC Inspection & Repair Workflow</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #fafbfc; --bg-white: #ffffff; --bg-subtle: #f3f5f7; --bg-hover: #f8f9fa;
+            --border: #e2e5ea; --border-strong: #cdd1d8;
+            --text: #1a1d24; --text-secondary: #525866; --text-muted: #8a919e;
+            --indigo: #4f46e5; --indigo-light: #eef2ff; --indigo-border: #c7d2fe;
+            --cyan: #0891b2; --cyan-light: #ecfeff; --cyan-border: #a5f3fc;
+            --blue: #2563eb; --blue-light: #eff6ff; --blue-border: #bfdbfe;
+            --emerald: #059669; --emerald-light: #ecfdf5; --emerald-border: #a7f3d0;
+            --amber: #d97706; --amber-light: #fffbeb; --amber-border: #fde68a;
+            --rose: #dc2626; --rose-light: #fef2f2; --rose-border: #fecaca;
+            --violet: #7c3aed; --violet-light: #f5f3ff; --violet-border: #ddd6fe;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'DM Sans', -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+        .header { background: var(--bg-white); border-bottom: 1px solid var(--border); padding: 40px 48px 36px; }
+        .header-inner { max-width: 1100px; margin: 0 auto; }
+        .header-logos { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+        .logo-text { font-weight: 700; font-size: 13px; letter-spacing: -0.2px; }
+        .logo-divider { width: 1px; height: 18px; background: var(--border-strong); }
+        .logo-text.amazon { color: var(--text); }
+        .logo-text.kooner { color: var(--indigo); }
+        .header h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.8px; margin-bottom: 6px; }
+        .header-sub { font-size: 15px; color: var(--text-secondary); max-width: 700px; line-height: 1.6; }
+        .header-meta { display: flex; gap: 24px; margin-top: 20px; flex-wrap: wrap; }
+        .meta-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+        .meta-item strong { color: var(--text-secondary); font-weight: 600; }
+        .sys-badge { display: inline-flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 2px 7px; border-radius: 3px; }
+        .sys-badge.sp { background: var(--cyan-light); color: var(--cyan); }
+        .sys-badge.fiq { background: var(--indigo-light); color: var(--indigo); }
+        .sys-badge.pa { background: var(--amber-light); color: var(--amber); }
+        .sys-badge.forms { background: rgba(99,102,241,0.1); color: #818cf8; }
+        .process-bar { background: var(--bg-white); border-bottom: 1px solid var(--border); padding: 16px 48px; position: sticky; top: 0; z-index: 50; }
+        .process-bar-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; overflow-x: auto; scrollbar-width: none; }
+        .process-bar-inner::-webkit-scrollbar { display: none; }
+        .pb-step { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-radius: 8px; white-space: nowrap; cursor: pointer; transition: background 0.15s; text-decoration: none; }
+        .pb-step:hover { background: var(--bg-subtle); }
+        .pb-num { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+        .pb-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+        .pb-step[data-c="indigo"] .pb-num { background: var(--indigo-light); color: var(--indigo); }
+        .pb-step[data-c="cyan"] .pb-num { background: var(--cyan-light); color: var(--cyan); }
+        .pb-step[data-c="blue"] .pb-num { background: var(--blue-light); color: var(--blue); }
+        .pb-step[data-c="emerald"] .pb-num { background: var(--emerald-light); color: var(--emerald); }
+        .pb-step[data-c="amber"] .pb-num { background: var(--amber-light); color: var(--amber); }
+        .pb-step[data-c="rose"] .pb-num { background: var(--rose-light); color: var(--rose); }
+        .pb-step[data-c="violet"] .pb-num { background: var(--violet-light); color: var(--violet); }
+        .pb-arrow { color: var(--border-strong); font-size: 13px; padding: 0 1px; flex-shrink: 0; }
+        .main { max-width: 1100px; margin: 0 auto; padding: 36px 48px 80px; }
+        .phase { margin-bottom: 40px; scroll-margin-top: 80px; }
+        .phase:last-child { margin-bottom: 0; }
+        .phase-header { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+        .phase-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+        .phase[data-c="indigo"] .phase-icon { background: var(--indigo-light); border: 1px solid var(--indigo-border); }
+        .phase[data-c="cyan"] .phase-icon { background: var(--cyan-light); border: 1px solid var(--cyan-border); }
+        .phase[data-c="blue"] .phase-icon { background: var(--blue-light); border: 1px solid var(--blue-border); }
+        .phase[data-c="emerald"] .phase-icon { background: var(--emerald-light); border: 1px solid var(--emerald-border); }
+        .phase[data-c="amber"] .phase-icon { background: var(--amber-light); border: 1px solid var(--amber-border); }
+        .phase[data-c="rose"] .phase-icon { background: var(--rose-light); border: 1px solid var(--rose-border); }
+        .phase[data-c="violet"] .phase-icon { background: var(--violet-light); border: 1px solid var(--violet-border); }
+        .phase-title { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+        .phase-subtitle { font-size: 13px; color: var(--text-muted); margin-top: 1px; }
+        .steps { display: flex; flex-direction: column; gap: 10px; position: relative; padding-left: 32px; }
+        .steps::before { content: ''; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 2px; background: var(--border); border-radius: 1px; }
+        .step { position: relative; background: var(--bg-white); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: border-color 0.15s, box-shadow 0.15s; }
+        .step:hover { border-color: var(--border-strong); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .step.auto { border-color: var(--cyan-border); background: linear-gradient(135deg, rgba(8,145,178,0.03) 0%, var(--bg-white) 100%); }
+        .step-dot { position: absolute; left: -27px; top: 20px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--bg); z-index: 1; }
+        .step.action .step-dot { background: var(--blue); border-color: var(--blue); }
+        .step.auto .step-dot { background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(8,145,178,0.15); }
+        .step.review .step-dot { background: var(--amber); border-color: var(--amber); }
+        .step.output .step-dot { background: var(--emerald); border-color: var(--emerald); }
+        .step.decision .step-dot { background: var(--amber); border-color: var(--amber); }
+        .step-summary { padding: 16px 20px; cursor: pointer; user-select: none; }
+        .step-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+        .step-tag { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 3px 7px; border-radius: 4px; }
+        .step.action .step-tag { background: var(--blue-light); color: var(--blue); }
+        .step.auto .step-tag { background: var(--cyan-light); color: var(--cyan); }
+        .step.review .step-tag { background: var(--amber-light); color: var(--amber); }
+        .step.output .step-tag { background: var(--emerald-light); color: var(--emerald); }
+        .step.decision .step-tag { background: var(--amber-light); color: var(--amber); }
+        .step-owner-tag { font-size: 11px; color: var(--text-muted); }
+        .step-name-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .step-name { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; }
+        .step-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-top: 4px; }
+        .expand-toggle { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-subtle); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; margin-top: 1px; }
+        .expand-toggle svg { width: 14px; height: 14px; color: var(--text-muted); transition: transform 0.25s ease; }
+        .step.expanded .expand-toggle { background: var(--blue-light); border-color: var(--blue-border); }
+        .step.expanded .expand-toggle svg { color: var(--blue); transform: rotate(180deg); }
+        .step-summary:hover .expand-toggle { border-color: var(--border-strong); }
+        .step-blowout { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
+        .step.expanded .step-blowout { max-height: 3000px; }
+        .blowout-inner { padding: 0 20px 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+        .sub-actions { display: flex; flex-direction: column; gap: 8px; }
+        .sub-action { display: flex; gap: 12px; padding: 12px 14px; background: var(--bg-subtle); border-radius: 8px; border: 1px solid transparent; transition: border-color 0.15s; }
+        .sub-action:hover { border-color: var(--border); }
+        .sub-action-num { width: 24px; height: 24px; border-radius: 50%; background: var(--bg-white); border: 1.5px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: var(--text-muted); flex-shrink: 0; margin-top: 1px; }
+        .phase[data-c="indigo"] .sub-action-num { border-color: var(--indigo-border); color: var(--indigo); }
+        .phase[data-c="cyan"] .sub-action-num { border-color: var(--cyan-border); color: var(--cyan); }
+        .phase[data-c="blue"] .sub-action-num { border-color: var(--blue-border); color: var(--blue); }
+        .phase[data-c="emerald"] .sub-action-num { border-color: var(--emerald-border); color: var(--emerald); }
+        .phase[data-c="amber"] .sub-action-num { border-color: var(--amber-border); color: var(--amber); }
+        .phase[data-c="rose"] .sub-action-num { border-color: var(--rose-border); color: var(--rose); }
+        .phase[data-c="violet"] .sub-action-num { border-color: var(--violet-border); color: var(--violet); }
+        .sub-action-content { flex: 1; }
+        .sub-action-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+        .sub-action-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .sub-action-owner { font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); background: var(--bg-white); padding: 2px 6px; border-radius: 3px; white-space: nowrap; align-self: flex-start; margin-top: 2px; flex-shrink: 0; }
+        .coverage-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+        .coverage-path { padding: 14px 16px; border-radius: 8px; border: 1px solid; }
+        .coverage-path.direct { background: var(--emerald-light); border-color: var(--emerald-border); }
+        .coverage-path.mobilize { background: var(--blue-light); border-color: var(--blue-border); }
+        .coverage-path-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .coverage-path-badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 3px 8px; border-radius: 4px; }
+        .coverage-path.direct .coverage-path-badge { background: rgba(5,150,105,0.15); color: var(--emerald); }
+        .coverage-path.mobilize .coverage-path-badge { background: rgba(37,99,235,0.15); color: var(--blue); }
+        .coverage-path-title { font-size: 13px; font-weight: 600; color: var(--text); }
+        .coverage-path .sub-actions { gap: 6px; }
+        .coverage-path .sub-action { background: rgba(255,255,255,0.6); padding: 10px 12px; }
+        .coverage-path .sub-action-num { width: 20px; height: 20px; font-size: 9px; }
+        .coverage-path .sub-action-title { font-size: 12px; }
+        .coverage-path .sub-action-desc { font-size: 11px; }
+        .coverage-path-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.06); font-style: italic; }
+        .branch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+        .branch { padding: 12px 14px; border-radius: 8px; border: 1px solid; }
+        .branch.approve { background: var(--emerald-light); border-color: var(--emerald-border); }
+        .branch.escalate { background: var(--rose-light); border-color: var(--rose-border); }
+        .branch.deny { background: var(--bg-subtle); border-color: var(--border); }
+        .branch-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+        .branch.approve .branch-label { color: var(--emerald); }
+        .branch.escalate .branch-label { color: var(--rose); }
+        .branch.deny .branch-label { color: var(--text-muted); }
+        .branch-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .schema-compact { margin-top: 10px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); font-size: 12px; }
+        .schema-compact table { width: 100%; border-collapse: collapse; }
+        .schema-compact thead { background: var(--bg-subtle); }
+        .schema-compact th { padding: 8px 12px; text-align: left; font-weight: 600; color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+        .schema-compact td { padding: 7px 12px; border-bottom: 1px solid rgba(226,229,234,0.5); color: var(--text-secondary); }
+        .schema-compact tr:last-child td { border-bottom: none; }
+        .schema-col { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text); font-size: 11px; }
+        .schema-type { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg-subtle); color: var(--text-muted); }
+        .callout { display: flex; gap: 14px; padding: 16px 18px; border-radius: 10px; margin-top: 14px; align-items: flex-start; }
+        .callout.info { background: var(--cyan-light); border: 1px solid var(--cyan-border); }
+        .callout.success { background: var(--emerald-light); border: 1px solid var(--emerald-border); }
+        .callout.system { background: var(--indigo-light); border: 1px solid var(--indigo-border); }
+        .callout-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+        .callout-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+        .callout.info .callout-title { color: var(--cyan); }
+        .callout.success .callout-title { color: var(--emerald); }
+        .callout.system .callout-title { color: var(--indigo); }
+        .callout-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .phase-divider { display: flex; align-items: center; gap: 16px; margin: 36px 0; }
+        .phase-divider-line { flex: 1; height: 1px; background: var(--border); }
+        .phase-divider-arrow { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-white); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+        .expand-bar { display: flex; justify-content: flex-end; margin-bottom: 16px; gap: 8px; }
+        .expand-bar-btn { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; color: var(--text-muted); background: var(--bg-white); border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; transition: all 0.15s; }
+        .expand-bar-btn:hover { color: var(--text-secondary); border-color: var(--border-strong); }
+        .footer { max-width: 1100px; margin: 0 auto; padding: 0 48px 48px; }
+        .footer-card { background: var(--bg-white); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; }
+        .footer-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+        .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .footer-item { padding: 14px 16px; background: var(--bg-subtle); border-radius: 8px; }
+        .footer-item-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .footer-item-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text); }
+        .footer-item-note { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        @media (max-width: 800px) {
+            .header,.process-bar,.main,.footer { padding-left: 20px; padding-right: 20px; }
+            .branch-row,.coverage-paths { grid-template-columns: 1fr; }
+            .footer-grid { grid-template-columns: 1fr 1fr; }
+            .header h1 { font-size: 24px; }
+            .sub-action { flex-direction: column; gap: 6px; }
+            .sub-action-owner { align-self: flex-start; }
+        }
+        /* ── Reviewer Bar ── */
+        .reviewer-bar {
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+            color: white;
+            padding: 14px 48px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .reviewer-bar-label { font-size: 13px; font-weight: 600; }
+        .reviewer-bar input {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 13px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.1);
+            color: white;
+            outline: none;
+            width: 200px;
+        }
+        .reviewer-bar input::placeholder { color: rgba(255,255,255,0.5); }
+        .reviewer-bar input:focus { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.15); }
+        .reviewer-bar-actions { margin-left: auto; display: flex; gap: 8px; }
+        .reviewer-bar-btn {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px; font-weight: 600;
+            padding: 6px 14px; border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.1);
+            color: white; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .reviewer-bar-btn:hover { background: rgba(255,255,255,0.2); }
+        .reviewer-bar-btn.primary { background: white; color: #312e81; border-color: white; }
+        .reviewer-bar-btn.primary:hover { background: #eef2ff; }
+        .reviewer-badge-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; font-weight: 700;
+            background: #f59e0b; color: #1a1d24;
+            padding: 1px 6px; border-radius: 10px;
+            margin-left: 4px;
+        }
+
+        /* ── Comment Button (on phases and steps) ── */
+        .comment-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px; border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-white);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px; font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+            position: relative;
+            z-index: 2;
+        }
+        .comment-btn:hover {
+            border-color: var(--indigo-border);
+            color: var(--indigo);
+            background: var(--indigo-light);
+        }
+        .comment-btn.has-comments {
+            border-color: var(--amber-border);
+            background: var(--amber-light);
+            color: var(--amber);
+        }
+        .comment-btn svg { width: 13px; height: 13px; }
+        .comment-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px; font-weight: 700;
+            background: var(--amber);
+            color: white;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* ── Comment Panel (slide-out) ── */
+        .comment-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s;
+        }
+        .comment-overlay.open { opacity: 1; pointer-events: auto; }
+
+        .comment-panel {
+            position: fixed;
+            top: 0; right: -440px;
+            width: 420px; max-width: 90vw;
+            height: 100vh;
+            background: var(--bg-white);
+            border-left: 1px solid var(--border);
+            box-shadow: -8px 0 30px rgba(0,0,0,0.12);
+            z-index: 201;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.3s ease;
+        }
+        .comment-panel.open { right: 0; }
+
+        .comment-panel-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: flex-start;
+            justify-content: space-between; gap: 12px;
+        }
+        .comment-panel-title { font-size: 15px; font-weight: 700; }
+        .comment-panel-context { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .comment-panel-close {
+            width: 32px; height: 32px;
+            border-radius: 6px; border: 1px solid var(--border);
+            background: var(--bg-subtle);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; font-size: 16px; color: var(--text-muted);
+            transition: all 0.15s; flex-shrink: 0;
+        }
+        .comment-panel-close:hover { background: var(--bg-hover); color: var(--text); }
+
+        .comment-panel-body {
+            flex: 1; overflow-y: auto; padding: 16px 24px;
+        }
+        .comment-empty {
+            text-align: center; padding: 40px 20px;
+            color: var(--text-muted); font-size: 13px;
+        }
+        .comment-empty-icon { font-size: 28px; margin-bottom: 8px; opacity: 0.5; }
+
+        .comment-item {
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+        .comment-item-header {
+            display: flex; justify-content: space-between;
+            align-items: center; margin-bottom: 6px;
+        }
+        .comment-item-author {
+            font-size: 12px; font-weight: 700; color: var(--indigo);
+        }
+        .comment-item-time {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; color: var(--text-muted);
+        }
+        .comment-item-text {
+            font-size: 13px; color: var(--text-secondary);
+            line-height: 1.5; white-space: pre-wrap;
+        }
+        .comment-item-delete {
+            font-size: 10px; color: var(--text-muted);
+            cursor: pointer; margin-top: 6px;
+            display: inline-block;
+        }
+        .comment-item-delete:hover { color: var(--rose); }
+        .comment-item-type {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            padding: 2px 6px; border-radius: 3px;
+            margin-left: 8px;
+        }
+        .comment-item-type.approve { background: var(--emerald-light); color: var(--emerald); }
+        .comment-item-type.question { background: var(--blue-light); color: var(--blue); }
+        .comment-item-type.change { background: var(--amber-light); color: var(--amber); }
+        .comment-item-type.concern { background: var(--rose-light); color: var(--rose); }
+
+        .comment-panel-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-subtle);
+        }
+        .comment-type-row {
+            display: flex; gap: 6px; margin-bottom: 10px;
+        }
+        .comment-type-btn {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 11px; font-weight: 600;
+            padding: 4px 10px; border-radius: 5px;
+            border: 1px solid var(--border);
+            background: var(--bg-white);
+            color: var(--text-muted);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .comment-type-btn:hover { border-color: var(--border-strong); }
+        .comment-type-btn.active.approve { background: var(--emerald-light); border-color: var(--emerald-border); color: var(--emerald); }
+        .comment-type-btn.active.question { background: var(--blue-light); border-color: var(--blue-border); color: var(--blue); }
+        .comment-type-btn.active.change { background: var(--amber-light); border-color: var(--amber-border); color: var(--amber); }
+        .comment-type-btn.active.concern { background: var(--rose-light); border-color: var(--rose-border); color: var(--rose); }
+
+        .comment-input {
+            width: 100%;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 13px;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-white);
+            color: var(--text);
+            resize: vertical;
+            min-height: 72px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .comment-input:focus { border-color: var(--indigo-border); }
+        .comment-input::placeholder { color: var(--text-muted); }
+        .comment-submit-row {
+            display: flex; justify-content: flex-end;
+            margin-top: 10px;
+        }
+        .comment-submit {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 12px; font-weight: 600;
+            padding: 8px 20px; border-radius: 6px;
+            border: none;
+            background: var(--indigo); color: white;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .comment-submit:hover { background: #4338ca; }
+        .comment-submit:disabled { opacity: 0.4; cursor: default; }
+
+        @media print { .reviewer-bar, .comment-btn, .comment-panel, .comment-overlay { display: none !important; } }
+    </style>
+</head>
+<body>
+
+<!-- Reviewer Bar -->
+<div class="reviewer-bar">
+    <span class="reviewer-bar-label">Reviewing as:</span>
+    <input type="text" id="reviewerName" placeholder="Enter your name..." onchange="saveReviewerName()">
+    <div class="reviewer-bar-actions">
+        <button class="reviewer-bar-btn" onclick="exportComments()">Export Feedback <span id="totalBadge" class="reviewer-badge-count" style="display:none">0</span></button>
+        <button class="reviewer-bar-btn primary" onclick="expandAll(); document.getElementById('phase1').scrollIntoView({behavior:'smooth'})">Start Review</button>
+    </div>
+</div>
+
+<!-- Comment Overlay -->
+<div class="comment-overlay" id="commentOverlay" onclick="closeCommentPanel()"></div>
+
+<!-- Comment Panel -->
+<div class="comment-panel" id="commentPanel">
+    <div class="comment-panel-header">
+        <div>
+            <div class="comment-panel-title" id="panelTitle">Comments</div>
+            <div class="comment-panel-context" id="panelContext"></div>
+        </div>
+        <div class="comment-panel-close" onclick="closeCommentPanel()">&times;</div>
+    </div>
+    <div class="comment-panel-body" id="panelBody"></div>
+    <div class="comment-panel-footer">
+        <div class="comment-type-row">
+            <button class="comment-type-btn approve active" data-type="approve" onclick="setCommentType(this)">Looks Good</button>
+            <button class="comment-type-btn question" data-type="question" onclick="setCommentType(this)">Question</button>
+            <button class="comment-type-btn change" data-type="change" onclick="setCommentType(this)">Suggest Change</button>
+            <button class="comment-type-btn concern" data-type="concern" onclick="setCommentType(this)">Concern</button>
+        </div>
+        <textarea class="comment-input" id="commentInput" placeholder="Type your feedback here..."></textarea>
+        <div class="comment-submit-row">
+            <button class="comment-submit" id="commentSubmitBtn" onclick="submitComment()">Add Comment</button>
+        </div>
+    </div>
+</div>
+<div class="header"><div class="header-inner">
+    <div class="header-logos">
+        <span class="logo-text amazon">Amazon FSS</span><div class="logo-divider"></div><span class="logo-text kooner">Kooner Fleet Management</span>
+    </div>
+    <h1>SRC Inspection & Repair Workflow</h1>
+    <p class="header-sub">End-to-end process from DSP inspection request through repair completion. Click any step to expand detailed actions.</p>
+    <div class="header-meta">
+        <div class="meta-item"><strong>Scope:</strong>&nbsp;Short-Term Hibernation SRC</div>
+        <div class="meta-item"><strong>Intake:</strong>&nbsp;Microsoft Forms</div>
+        <div class="meta-item"><strong>Request Tracking:</strong>&nbsp;SharePoint List</div>
+        <div class="meta-item"><strong>Work Orders:</strong>&nbsp;FleetIQ</div>
+        <div class="meta-item"><strong>Automation:</strong>&nbsp;Power Automate</div>
+    </div>
+</div></div>
+
+<div class="process-bar"><div class="process-bar-inner">
+    <a class="pb-step" data-c="indigo" href="#phase1"><span class="pb-num">1</span><span class="pb-label">Request</span></a><span class="pb-arrow">&rarr;</span>
+    <a class="pb-step" data-c="cyan" href="#phase2"><span class="pb-num">2</span><span class="pb-label">Tracking</span></a><span class="pb-arrow">&rarr;</span>
+    <a class="pb-step" data-c="blue" href="#phase3"><span class="pb-num">3</span><span class="pb-label">Scheduling</span></a><span class="pb-arrow">&rarr;</span>
+    <a class="pb-step" data-c="emerald" href="#phase4"><span class="pb-num">4</span><span class="pb-label">Inspection</span></a><span class="pb-arrow">&rarr;</span>
+    <a class="pb-step" data-c="amber" href="#phase5"><span class="pb-num">5</span><span class="pb-label">Results</span></a><span class="pb-arrow">&rarr;</span>
+    <a class="pb-step" data-c="rose" href="#phase6"><span class="pb-num">6</span><span class="pb-label">Repairs</span></a><span class="pb-arrow">&rarr;</span>
+    <a class="pb-step" data-c="violet" href="#phase7"><span class="pb-num">7</span><span class="pb-label">Close-Out</span></a>
+</div></div>
+
+<div class="main">
+<div class="expand-bar">
+    <button class="expand-bar-btn" onclick="expandAll()">Expand All</button>
+    <button class="expand-bar-btn" onclick="collapseAll()">Collapse All</button>
+</div>
+
+<!-- ════ PHASE 1 ════ -->
+<div class="phase" data-c="indigo" id="phase1">
+    <div class="phase-header"><div class="phase-icon">&#x1F4DD;</div><div><div class="phase-title">1 &mdash; DSP Submits Inspection Request</div><div class="phase-subtitle">Microsoft Forms intake &rarr; notification to Dispatch &rarr; manual review, tracking row, and FleetIQ work order creation</div></div></div>
+    <div class="steps">
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">DSP</span><span class="sys-badge forms">Forms</span></div>
+                <div class="step-name-row"><div><div class="step-name">DSP completes "FSS SRC Inspection Request" form</div><div class="step-desc">Kooner provides a shared Microsoft Forms link. The form captures everything needed to evaluate and schedule the inspection.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">DSP receives Kooner's inspection request link</div><div class="sub-action-desc">Microsoft Forms URL distributed via email and included in FSS program documentation.</div></div><div class="sub-action-owner">Kooner Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Enter company and contact information</div><div class="sub-action-desc">Fields: DSP Name, Contact Name, Contact Email, Contact Phone.</div></div><div class="sub-action-owner">DSP</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Enter station details</div><div class="sub-action-desc">Fields: Station Code (e.g. DAU5), Station Address, Station Access Hours. Station code must match Amazon's assignment list.</div></div><div class="sub-action-owner">DSP</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Enter vehicle count and scheduling preferences</div><div class="sub-action-desc">Fields: Number of VINs, Preferred Start Date, Preferred End Date, Special Instructions (gate codes, parking, key access &mdash; optional).</div></div><div class="sub-action-owner">DSP</div></div>
+                <div class="sub-action"><div class="sub-action-num">5</div><div class="sub-action-content"><div class="sub-action-title">Submit the form</div><div class="sub-action-desc">Submission triggers the Power Automate notification flow. DSP sees an on-screen confirmation.</div></div><div class="sub-action-owner">DSP</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step auto" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Automated</span><span class="step-owner-tag">Power Automate</span><span class="sys-badge pa">Flow</span></div>
+                <div class="step-name-row"><div><div class="step-name">Notification sent to Kooner Dispatch with request details</div><div class="step-desc">Power Automate sends Dispatch the full form response and sends the DSP an acknowledgment. No tracking row or work order is created automatically.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Power Automate detects new form response</div><div class="sub-action-desc">Trigger: "When a new response is submitted." Fires within seconds.</div></div><div class="sub-action-owner">System</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Get form response details</div><div class="sub-action-desc">Retrieves all submitted field values &mdash; DSP name, contact info, station code, VIN count, preferred dates, special instructions.</div></div><div class="sub-action-owner">System</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Send notification to Kooner Dispatch</div><div class="sub-action-desc">Email and/or Teams message with all request details and a direct link to the form response.</div></div><div class="sub-action-owner">System</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Send acknowledgment email to DSP</div><div class="sub-action-desc">Auto-generated email confirming receipt with a summary of what was submitted. Sets expectation: scheduling follow-up within 2 business days.</div></div><div class="sub-action-owner">System</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">Kooner Dispatch</span><span class="sys-badge sp">SharePoint</span><span class="sys-badge fiq">FleetIQ</span></div>
+                <div class="step-name-row"><div><div class="step-name">Dispatch reviews request, creates tracking row and work order</div><div class="step-desc">Dispatch validates the request, creates a tracking row in SharePoint, and creates the actual work order in FleetIQ. The two are linked by the FleetIQ WO number.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Review the form submission</div><div class="sub-action-desc">Open the notification or form response. Verify station code is within scope and VIN count matches Amazon's assignment list.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Determine coverage type</div><div class="sub-action-desc">Map station against Kooner's technician footprint. Direct = within 50 mi. Mobilize = travel required. Partnership = subcontractor region.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Create tracking row in SharePoint</div><div class="sub-action-desc">New row in "FSS Inspection Requests" list: Request ID, Category = Inspection, DSP info, station, VIN count, preferred dates, Coverage Type, Status = Submitted, Follow-Up Repairs Needed = No.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Create work order in FleetIQ</div><div class="sub-action-desc">Create the SRC Inspection WO in FleetIQ with station, VIN assignment, and service scope. Copy the FleetIQ WO number back to the SharePoint row to link the two systems.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">5</div><div class="sub-action-content"><div class="sub-action-title">Flag issues back to DSP if needed</div><div class="sub-action-desc">If station isn't in scope, VIN count doesn't match, or info is missing &mdash; contact DSP to clarify before proceeding.</div></div><div class="sub-action-owner">Dispatch</div></div>
+            </div></div></div>
+        </div>
+    </div>
+
+    <div class="callout system"><div class="callout-icon">&#x1F517;</div><div><div class="callout-title">Two Systems, One Link</div><div class="callout-text"><strong>SharePoint</strong> tracks the request lifecycle &mdash; status, scheduling, contacts, and follow-up repair flags. <strong>FleetIQ</strong> is the system of record for the actual work order &mdash; scope, tech assignment, service execution. The FleetIQ WO Number column on the SharePoint row links them together.</div></div></div>
+</div>
+
+<div class="phase-divider"><div class="phase-divider-line"></div><div class="phase-divider-arrow">&darr;</div><div class="phase-divider-line"></div></div>
+
+<!-- ════ PHASE 2 ════ -->
+<div class="phase" data-c="cyan" id="phase2">
+    <div class="phase-header"><div class="phase-icon">&#x1F4CA;</div><div><div class="phase-title">2 &mdash; SharePoint: Request Tracking Hub</div><div class="phase-subtitle">Every request tracked as a line item &mdash; follow-up repair rows auto-created when checkbox is checked</div></div></div>
+    <div class="steps">
+
+        <div class="step auto" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">System</span><span class="step-owner-tag">SharePoint &mdash; "FSS Inspection Requests"</span><span class="sys-badge sp">SharePoint</span></div>
+                <div class="step-name-row"><div><div class="step-name">Request tracking list with full lifecycle columns</div><div class="step-desc">Inspection and follow-up repair requests in one list, differentiated by Category. Each row links to its FleetIQ work order.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner">
+                <div class="schema-compact"><table>
+                    <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="schema-col">Request ID</span></td><td><span class="schema-type">Text</span></td><td>Assigned by Dispatch (or auto-number)</td></tr>
+                        <tr><td><span class="schema-col">Category</span></td><td><span class="schema-type">Choice</span></td><td>Inspection &middot; Follow-Up Repair</td></tr>
+                        <tr><td><span class="schema-col">FleetIQ WO Number</span></td><td><span class="schema-type">Text</span></td><td>Links to the work order in FleetIQ</td></tr>
+                        <tr><td><span class="schema-col">DSP Name</span></td><td><span class="schema-type">Text</span></td><td>Entered by Dispatch from form</td></tr>
+                        <tr><td><span class="schema-col">Contact Name / Email / Phone</span></td><td><span class="schema-type">Text</span></td><td>DSP point of contact</td></tr>
+                        <tr><td><span class="schema-col">Station Code</span></td><td><span class="schema-type">Text</span></td><td>Amazon station identifier</td></tr>
+                        <tr><td><span class="schema-col">VIN Count</span></td><td><span class="schema-type">Number</span></td><td>Vehicles to inspect or repair</td></tr>
+                        <tr><td><span class="schema-col">Scheduled Date</span></td><td><span class="schema-type">Date</span></td><td>Confirmed service date</td></tr>
+                        <tr><td><span class="schema-col">Assigned Tech</span></td><td><span class="schema-type">Text</span></td><td>Technician or partner name</td></tr>
+                        <tr><td><span class="schema-col">Coverage Type</span></td><td><span class="schema-type">Choice</span></td><td>Direct &middot; Mobilize &middot; Partnership</td></tr>
+                        <tr><td><span class="schema-col">Status</span></td><td><span class="schema-type">Choice</span></td><td>Submitted &middot; Scheduled &middot; In Progress &middot; Completed &middot; Pending Estimate &middot; Pending MCS &middot; Approved &middot; Denied</td></tr>
+                        <tr><td><span class="schema-col">Follow-Up Repairs Needed</span></td><td><span class="schema-type">Yes/No</span></td><td>&#x2611; Triggers auto-creation of repair row</td></tr>
+                        <tr><td><span class="schema-col">Repair Estimate</span></td><td><span class="schema-type">Currency</span></td><td>Estimated cost (repair rows only)</td></tr>
+                        <tr><td><span class="schema-col">Repair Description</span></td><td><span class="schema-type">Multi-line</span></td><td>Itemized details (repair rows only)</td></tr>
+                        <tr><td><span class="schema-col">Parent Request ID</span></td><td><span class="schema-type">Lookup</span></td><td>Links repair &rarr; originating inspection</td></tr>
+                        <tr><td><span class="schema-col">Notes</span></td><td><span class="schema-type">Multi-line</span></td><td>Running notes, MCS ref, billing ref</td></tr>
+                    </tbody>
+                </table></div>
+            </div></div>
+        </div>
+
+        <div class="step auto" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Automated</span><span class="step-owner-tag">Power Automate &mdash; triggers when checkbox = Yes</span><span class="sys-badge pa">Flow</span></div>
+                <div class="step-name-row"><div><div class="step-name">"Follow-Up Repairs Needed" checkbox auto-creates a repair tracking row</div><div class="step-desc">Checking the box on any inspection row automatically generates a linked follow-up repair row in SharePoint. Dispatch then creates the corresponding repair WO in FleetIQ.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Power Automate detects checkbox changed to Yes</div><div class="sub-action-desc">Trigger: "When an existing item is modified" with condition: Follow-Up Repairs Needed = Yes and Category = Inspection.</div></div><div class="sub-action-owner">System</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Create new repair tracking row in SharePoint</div><div class="sub-action-desc">New row: Category = Follow-Up Repair, Status = Pending Estimate. Copies DSP name, contact info, station code from parent. Sets Parent Request ID. FleetIQ WO Number left blank.</div></div><div class="sub-action-owner">System</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Notify Kooner Ops</div><div class="sub-action-desc">Email/Teams notification with link to the new repair row. Ops will populate Repair Estimate and Description, then create the repair WO in FleetIQ.</div></div><div class="sub-action-owner">System</div></div>
+            </div></div></div>
+        </div>
+    </div>
+
+    <div class="callout info"><div class="callout-icon">&#x1F517;</div><div><div class="callout-title">Inspection &harr; Repair Traceability</div><div class="callout-text">The Parent Request ID links every follow-up repair back to the inspection that identified it. Both rows carry their own FleetIQ WO Number, creating a full audit trail across both systems.</div></div></div>
+</div>
+
+<div class="phase-divider"><div class="phase-divider-line"></div><div class="phase-divider-arrow">&darr;</div><div class="phase-divider-line"></div></div>
+
+<!-- ════ PHASE 3 ════ -->
+<div class="phase" data-c="blue" id="phase3">
+    <div class="phase-header"><div class="phase-icon">&#x1F4C5;</div><div><div class="phase-title">3 &mdash; Capacity Check & Scheduling</div><div class="phase-subtitle">Direct stations schedule faster with local techs &mdash; Mobilize requires travel coordination and route batching</div></div></div>
+    <div class="steps">
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">Kooner Dispatch</span><span class="sys-badge sp">SharePoint</span><span class="sys-badge fiq">FleetIQ</span></div>
+                <div class="step-name-row"><div><div class="step-name">Review work order and confirm tech capacity</div><div class="step-desc">Dispatch opens the tracking row (coverage type already set during creation) and checks technician availability. Coverage type determines the scheduling path.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Open SharePoint "Dispatch Queue" view</div><div class="sub-action-desc">Filtered view: Category = Inspection, Status = Submitted. Sorted by preferred date range. Coverage Type was set when Dispatch created the row.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Verify coverage type and tech assignment options</div><div class="sub-action-desc">Confirm classification is still accurate. For Direct, identify the local tech. For Mobilize, identify nearest available tech from an adjacent market.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Check for route-batching opportunities (Mobilize)</div><div class="sub-action-desc">Before scheduling Mobilize stations individually, check if multiple stations in the same region have open requests. Batching nearby stations into one trip reduces travel cost.</div></div><div class="sub-action-owner">Dispatch</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">Kooner Dispatch</span></div>
+                <div class="step-name-row"><div><div class="step-name">Build scheduling blocks &mdash; process differs by coverage type</div><div class="step-desc">Direct stations schedule from local tech calendars with tighter windows. Mobilize stations require travel planning and wider windows.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner">
+                <div class="coverage-paths">
+                    <div class="coverage-path direct">
+                        <div class="coverage-path-header"><span class="coverage-path-badge">Direct</span><span class="coverage-path-title">Local Tech &mdash; Within 50 mi</span></div>
+                        <div class="sub-actions">
+                            <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Pull local tech's calendar</div><div class="sub-action-desc">Check assigned market tech's availability against the DSP's preferred date range.</div></div></div>
+                            <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Build 2&ndash;3 scheduling blocks</div><div class="sub-action-desc">Tighter windows possible &mdash; next-day or same-week since no travel coordination needed.</div></div></div>
+                            <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Confirm materials kit readiness</div><div class="sub-action-desc">Verify tech has SRC consumables on hand (fuel stabilizer, battery protectant, rodent repellant, exhaust plugs, lubricants).</div></div></div>
+                        </div>
+                        <div class="coverage-path-note">Typical lead time: 1&ndash;3 business days. Throughput: 6&ndash;8 vehicles/day.</div>
+                    </div>
+                    <div class="coverage-path mobilize">
+                        <div class="coverage-path-header"><span class="coverage-path-badge">Mobilize</span><span class="coverage-path-title">Travel Tech &mdash; Deployed from Nearby Market</span></div>
+                        <div class="sub-actions">
+                            <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Identify nearest available tech</div><div class="sub-action-desc">Search adjacent markets. Factor in workload, travel distance, and overlap with other Mobilize requests in the region.</div></div></div>
+                            <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Calculate travel and plan route</div><div class="sub-action-desc">Estimate drive time. If multiple stations nearby have open requests, build a multi-stop route to batch inspections.</div></div></div>
+                            <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Build 2&ndash;3 scheduling blocks with travel windows</div><div class="sub-action-desc">Wider windows &mdash; full-week or multi-day blocks to justify deployment. Must account for travel days.</div></div></div>
+                            <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Confirm materials and travel logistics</div><div class="sub-action-desc">SRC consumables stocked for full trip. Lodging confirmed if overnight. Station access details for all stops.</div></div></div>
+                        </div>
+                        <div class="coverage-path-note">Typical lead time: 3&ndash;7 business days. Travel billed at $99/hr. Multi-stop routes preferred.</div>
+                    </div>
+                </div>
+                <div class="sub-actions" style="margin-top:14px;">
+                    <div class="sub-action"><div class="sub-action-num">&mdash;</div><div class="sub-action-content"><div class="sub-action-title">Partnership stations (if applicable)</div><div class="sub-action-desc">Dispatch contacts the qualified subcontractor partner to confirm availability and coordinates scheduling through their operations team.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                </div>
+            </div></div>
+        </div>
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">Kooner Dispatch &rarr; DSP</span></div>
+                <div class="step-name-row"><div><div class="step-name">Send scheduling options and DSP confirms selection</div><div class="step-desc">DSP receives available windows, selects preferred block, and confirms station access details.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Email scheduling options to DSP</div><div class="sub-action-desc">2&ndash;3 blocks with coverage type context. Mobilize emails note the wider windows and route-batching rationale.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">DSP replies with selected block</div><div class="sub-action-desc">Confirms preferred window. For Mobilize, flexibility on exact dates within the block helps optimize the tech's route.</div></div><div class="sub-action-owner">DSP</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">DSP confirms station access details</div><div class="sub-action-desc">Gate codes, parking, key access, on-site contact. Added to SharePoint Notes and FleetIQ WO.</div></div><div class="sub-action-owner">DSP</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Update SharePoint and FleetIQ</div><div class="sub-action-desc">SharePoint: Scheduled Date, Assigned Tech, Status = Scheduled. FleetIQ: update WO with tech assignment and schedule. Tech receives notification with station details, VIN list, and travel itinerary (Mobilize).</div></div><div class="sub-action-owner">Dispatch</div></div>
+            </div></div></div>
+        </div>
+    </div>
+
+    <div class="callout info"><div class="callout-icon">&#x1F5FA;&#xFE0F;</div><div><div class="callout-title">Direct vs. Mobilize: What DSPs Should Know</div><div class="callout-text"><strong>Direct stations</strong> (tech within 50 mi) typically schedule within 1&ndash;3 business days with tight, specific-day windows. <strong>Mobilize stations</strong> (travel required) have a 3&ndash;7 day lead time and wider windows &mdash; Kooner batches nearby stations into a single route to maximize efficiency. DSP flexibility on exact dates helps optimize scheduling.</div></div></div>
+</div>
+
+<div class="phase-divider"><div class="phase-divider-line"></div><div class="phase-divider-arrow">&darr;</div><div class="phase-divider-line"></div></div>
+
+<!-- ════ PHASE 4 ════ -->
+<div class="phase" data-c="emerald" id="phase4">
+    <div class="phase-header"><div class="phase-icon">&#x1F527;</div><div><div class="phase-title">4 &mdash; On-Site SRC Inspection</div><div class="phase-subtitle">Tech executes the Storage Readiness Checklist and documents findings</div></div></div>
+    <div class="steps">
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">Technician</span><span class="sys-badge fiq">FleetIQ</span></div>
+                <div class="step-name-row"><div><div class="step-name">Arrive on-site and execute SRC checklist per vehicle</div><div class="step-desc">Full Storage Readiness Checklist per Amazon specifications. Work tracked against the FleetIQ work order.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Arrive at station and check in</div><div class="sub-action-desc">Confirm access with station contact. Locate assigned vehicles. Log arrival &mdash; SharePoint Status &rarr; In Progress.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Verify VIN list against assignment</div><div class="sub-action-desc">Cross-reference physical vehicles against assigned VIN list. Note any missing vehicles or discrepancies.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Exterior inspection per vehicle</div><div class="sub-action-desc">Document body condition and existing damage. Check tire condition/pressure. Verify all lights. Photograph VIN plate and damage.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Fluids and fuel service</div><div class="sub-action-desc">Check and top off all fluids. Add fuel stabilizer per spec. Verify fuel level at 1/4 tank minimum.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">5</div><div class="sub-action-content"><div class="sub-action-title">Battery test and protection</div><div class="sub-action-desc">Test battery, log voltage. Apply terminal protectant. Connect to maintainer if facility-equipped. Photograph battery status.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">6</div><div class="sub-action-content"><div class="sub-action-title">Interior preparation</div><div class="sub-action-desc">Remove personal items/trash. Apply rodent repellant. Plug exhaust (steel wool). Lubricate door hinges, latches, seals.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">7</div><div class="sub-action-content"><div class="sub-action-title">Complete photo documentation</div><div class="sub-action-desc">Required photos: VIN plate, odometer, battery status, pre-existing damage. Per Amazon documentation standards.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">8</div><div class="sub-action-content"><div class="sub-action-title">Sign and initial SRC checklist</div><div class="sub-action-desc">Complete all line items. Initial each section. Note any items requiring follow-up repair with description and estimated cost.</div></div><div class="sub-action-owner">Tech</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step decision" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Decision</span><span class="step-owner-tag">Technician</span></div>
+                <div class="step-name-row"><div><div class="step-name">Any repair items identified beyond SRC scope?</div><div class="step-desc">Tech evaluates each vehicle for mechanical issues, safety concerns, or parts replacement needs.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner">
+                <div class="branch-row">
+                    <div class="branch approve"><div class="branch-label">&#x2713; No repairs needed</div><div class="branch-text">Vehicle passes SRC. Documentation uploaded. "Follow-Up Repairs Needed" remains unchecked. Vehicle is storage-ready.</div></div>
+                    <div class="branch escalate"><div class="branch-label">&#x26A0; Repairs identified</div><div class="branch-text">Tech documents each item with description, cost estimate, and photos. Checks "Follow-Up Repairs Needed" = Yes &rarr; triggers auto-creation of repair tracking row in SharePoint.</div></div>
+                </div>
+                <div class="sub-actions" style="margin-top:12px;">
+                    <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Document each repair item found</div><div class="sub-action-desc">Written description, estimated cost (parts + labor), and supporting photos for each issue.</div></div><div class="sub-action-owner">Tech</div></div>
+                    <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Update SharePoint inspection row</div><div class="sub-action-desc">Status &rarr; Completed. If repairs needed, check Follow-Up Repairs Needed = Yes (triggers repair row auto-creation).</div></div><div class="sub-action-owner">Tech / QC</div></div>
+                    <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Upload all documentation within 24 hours</div><div class="sub-action-desc">Photos, signed checklists, VIN verification, and repair estimates uploaded to FleetIQ and/or designated system.</div></div><div class="sub-action-owner">Tech</div></div>
+                </div>
+            </div></div>
+        </div>
+    </div>
+</div>
+
+<div class="phase-divider"><div class="phase-divider-line"></div><div class="phase-divider-arrow">&darr;</div><div class="phase-divider-line"></div></div>
+
+<!-- ════ PHASE 5 ════ -->
+<div class="phase" data-c="amber" id="phase5">
+    <div class="phase-header"><div class="phase-icon">&#x1F4CB;</div><div><div class="phase-title">5 &mdash; Inspection Results & Repair Assessment</div><div class="phase-subtitle">QC review, report delivery, $500 pre-authorization routing, and FleetIQ repair WO creation</div></div></div>
+    <div class="steps">
+
+        <div class="step review" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Review</span><span class="step-owner-tag">Kooner QC</span></div>
+                <div class="step-name-row"><div><div class="step-name">QC review of inspection documentation</div><div class="step-desc">Verify completeness and accuracy before packaging results.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Review 100% of submitted SRC checklists</div><div class="sub-action-desc">All line items addressed, tech initials present, no blank sections. Flag incomplete checklists for rework.</div></div><div class="sub-action-owner">QC</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Spot-check 10% of photo documentation</div><div class="sub-action-desc">Random sample: photos clear, VINs readable, odometer visible, damage documented. Increase to 25% if issues found.</div></div><div class="sub-action-owner">QC</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Validate repair estimates on flagged vehicles</div><div class="sub-action-desc">Review descriptions and costs for reasonableness. Cross-reference against standard repair times and parts pricing.</div></div><div class="sub-action-owner">QC</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step output" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Output</span><span class="step-owner-tag">Kooner &rarr; Amazon FSS / DSP</span></div>
+                <div class="step-name-row"><div><div class="step-name">Inspection report delivered</div><div class="step-desc">Consolidated report with per-vehicle SRC status and repair estimate appendix.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Compile station summary</div><div class="sub-action-desc">Total vehicles inspected, passed, needing repair. Completion date and assigned tech.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Generate per-vehicle detail report</div><div class="sub-action-desc">Each VIN: pass/fail status, checklist notes, photo links. Repair flags highlighted with estimated cost.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Send report to Amazon FSS and DSP</div><div class="sub-action-desc">Email with report attached. FleetIQ WO number referenced for traceability.</div></div><div class="sub-action-owner">Ops</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step decision" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Decision</span><span class="step-owner-tag">Kooner Ops</span><span class="sys-badge sp">SharePoint</span><span class="sys-badge fiq">FleetIQ</span></div>
+                <div class="step-name-row"><div><div class="step-name">Repair estimate vs. $500 pre-authorization limit</div><div class="step-desc">Each vehicle's total repair cost evaluated against the threshold. Repair WO created in FleetIQ.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner">
+                <div class="sub-actions">
+                    <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Populate repair details on the auto-created SharePoint row</div><div class="sub-action-desc">Enter Repair Estimate (total cost) and itemized Repair Description on the follow-up repair tracking row.</div></div><div class="sub-action-owner">Ops</div></div>
+                    <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Create repair work order in FleetIQ</div><div class="sub-action-desc">New WO in FleetIQ for the repair scope. Copy the FleetIQ WO number back to the SharePoint repair row.</div></div><div class="sub-action-owner">Ops</div></div>
+                    <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Evaluate estimate against $500 threshold</div><div class="sub-action-desc">Compare per-vehicle total to the pre-authorization limit. Determines routing.</div></div><div class="sub-action-owner">Ops</div></div>
+                </div>
+                <div class="branch-row">
+                    <div class="branch approve"><div class="branch-label">&le; $500 &mdash; Pre-Authorized</div><div class="branch-text">Repairs proceed without additional approval. SharePoint Status &rarr; Approved &mdash; Scheduling. Skip to repair scheduling in Phase 6.</div></div>
+                    <div class="branch escalate"><div class="branch-label">&gt; $500 &mdash; MCS Approval Required</div><div class="branch-text">SharePoint Status &rarr; Pending MCS Approval. Work order submitted to Amazon MCS portal. Continue to Phase 6.</div></div>
+                </div>
+            </div></div>
+        </div>
+    </div>
+</div>
+
+<div class="phase-divider"><div class="phase-divider-line"></div><div class="phase-divider-arrow">&darr;</div><div class="phase-divider-line"></div></div>
+
+<!-- ════ PHASE 6 ════ -->
+<div class="phase" data-c="rose" id="phase6">
+    <div class="phase-header"><div class="phase-icon">&#x1F504;</div><div><div class="phase-title">6 &mdash; MCS Approval, Repair Scheduling & Execution</div><div class="phase-subtitle">Over-$500 repairs routed through Amazon MCS, then scheduled and completed via FleetIQ</div></div></div>
+    <div class="steps">
+
+        <div class="step output" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Output</span><span class="step-owner-tag">Kooner Ops &rarr; Amazon MCS</span></div>
+                <div class="step-name-row"><div><div class="step-name">Submit repair work order to Amazon MCS</div><div class="step-desc">Itemized repair WO with supporting inspection photos submitted for authorization.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Prepare MCS submission package</div><div class="sub-action-desc">VIN, itemized repair lines with SRT hours, parts list with pricing, total cost, and inspection photos. References FleetIQ WO and original inspection.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Submit through Amazon MCS portal</div><div class="sub-action-desc">Upload work order to MCS. Amazon FSS team notified of pending approval.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Track approval status</div><div class="sub-action-desc">Monitor MCS portal. Follow up within 48 hours if no response. Update SharePoint Notes with status.</div></div><div class="sub-action-owner">Ops</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step decision" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Decision</span><span class="step-owner-tag">Amazon MCS</span></div>
+                <div class="step-name-row"><div><div class="step-name">Amazon MCS approval decision</div><div class="step-desc">Full approval, partial approval, or denial.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner">
+                <div class="branch-row">
+                    <div class="branch approve"><div class="branch-label">&#x2713; Approved</div><div class="branch-text">SharePoint Status &rarr; Approved &mdash; Scheduling. PO/approval ref added to Notes and FleetIQ WO.</div></div>
+                    <div class="branch deny"><div class="branch-label">&#x2717; Denied</div><div class="branch-text">SharePoint Status &rarr; Denied. Vehicle proceeds to storage with noted deficiencies. DSP and Amazon notified.</div></div>
+                </div>
+                <div class="sub-actions" style="margin-top:12px;">
+                    <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Record MCS decision in SharePoint and FleetIQ</div><div class="sub-action-desc">Update Status. Add PO number or denial reason to Notes. For partial approvals, note authorized line items.</div></div><div class="sub-action-owner">Ops</div></div>
+                    <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Notify DSP of outcome</div><div class="sub-action-desc">Email with decision summary. For approvals: next steps and scheduling timeline. For denials: documented deficiencies.</div></div><div class="sub-action-owner">Ops</div></div>
+                </div>
+            </div></div>
+        </div>
+
+        <div class="step action" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Action</span><span class="step-owner-tag">Kooner Dispatch &rarr; Technician</span><span class="sys-badge fiq">FleetIQ</span></div>
+                <div class="step-name-row"><div><div class="step-name">Schedule and execute approved repairs</div><div class="step-desc">Same scheduling flow as Phase 3. Tech performs authorized repair work tracked in FleetIQ.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Confirm parts availability and lead time</div><div class="sub-action-desc">Order parts. Verify delivery timeline before committing to a date. Note ETA in SharePoint and FleetIQ.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Assign tech and schedule with DSP</div><div class="sub-action-desc">Same tech preferred for continuity. Batch repairs at same station. Target: within 5 business days of approval.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Update SharePoint and FleetIQ</div><div class="sub-action-desc">SharePoint: Scheduled Date, Assigned Tech, Status = Scheduled. FleetIQ: update WO with schedule and tech.</div></div><div class="sub-action-owner">Dispatch</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Tech performs approved repairs</div><div class="sub-action-desc">Execute authorized items only. Status &rarr; In Progress. Before/after photos, parts receipts, labor hours logged in FleetIQ.</div></div><div class="sub-action-owner">Tech</div></div>
+                <div class="sub-action"><div class="sub-action-num">5</div><div class="sub-action-content"><div class="sub-action-title">Upload repair documentation within 24 hours</div><div class="sub-action-desc">Before/after photos, parts receipts, labor per line item, signed repair completion checklist. Uploaded to FleetIQ.</div></div><div class="sub-action-owner">Tech</div></div>
+            </div></div></div>
+        </div>
+    </div>
+</div>
+
+<div class="phase-divider"><div class="phase-divider-line"></div><div class="phase-divider-arrow">&darr;</div><div class="phase-divider-line"></div></div>
+
+<!-- ════ PHASE 7 ════ -->
+<div class="phase" data-c="violet" id="phase7">
+    <div class="phase-header"><div class="phase-icon">&#x2705;</div><div><div class="phase-title">7 &mdash; Completion, Documentation & Billing</div><div class="phase-subtitle">QC sign-off, vehicle cleared for storage, both systems closed out, billing processed</div></div></div>
+    <div class="steps">
+
+        <div class="step review" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Review</span><span class="step-owner-tag">Kooner QC</span></div>
+                <div class="step-name-row"><div><div class="step-name">QC review of repair documentation</div><div class="step-desc">Verify all approved items completed and costs align with estimate.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Verify all approved items were addressed</div><div class="sub-action-desc">Cross-reference completed work against the approved WO line items in FleetIQ.</div></div><div class="sub-action-owner">QC</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Review before/after photos and receipts</div><div class="sub-action-desc">Confirm photos show repair completed. Validate parts receipts match WO items.</div></div><div class="sub-action-owner">QC</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Validate final costs vs. approved estimate</div><div class="sub-action-desc">Compare actuals against estimate. Flag variances exceeding 10% before billing.</div></div><div class="sub-action-owner">QC</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step output" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Output</span><span class="step-owner-tag">Kooner &rarr; Amazon FSS / DSP</span><span class="sys-badge sp">SharePoint</span><span class="sys-badge fiq">FleetIQ</span></div>
+                <div class="step-name-row"><div><div class="step-name">Completion report delivered, both systems closed out</div><div class="step-desc">Final report to Amazon and DSP. SharePoint rows and FleetIQ WOs closed.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Generate repair completion report</div><div class="sub-action-desc">Work completed, actual vs. estimated cost, confirmation vehicle is storage-ready.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Send report to Amazon FSS and DSP</div><div class="sub-action-desc">References both the inspection and repair FleetIQ WO numbers for traceability.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Close out SharePoint rows</div><div class="sub-action-desc">Inspection row: Status confirmed Completed. Repair row: Status &rarr; Completed, final cost entered.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Close out FleetIQ work orders</div><div class="sub-action-desc">Both inspection and repair WOs marked complete in FleetIQ with final documentation attached.</div></div><div class="sub-action-owner">Ops</div></div>
+                <div class="sub-action"><div class="sub-action-num">5</div><div class="sub-action-content"><div class="sub-action-title">Vehicle cleared for hibernation storage</div><div class="sub-action-desc">VIN marked as storage-ready. All SRC and repair requirements met and documented across both systems.</div></div><div class="sub-action-owner">Ops</div></div>
+            </div></div></div>
+        </div>
+
+        <div class="step output" onclick="toggleStep(this)"><div class="step-dot"></div>
+            <div class="step-summary">
+                <div class="step-top"><span class="step-tag">Output</span><span class="step-owner-tag">Kooner Finance</span></div>
+                <div class="step-name-row"><div><div class="step-name">Billing processed via weekly Payee Central bulk upload</div><div class="step-desc">Completed items included in the next weekly upload, referencing FleetIQ WO numbers.</div></div><div class="expand-toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div></div>
+            </div>
+            <div class="step-blowout"><div class="blowout-inner"><div class="sub-actions">
+                <div class="sub-action"><div class="sub-action-num">1</div><div class="sub-action-content"><div class="sub-action-title">Compile billing line items</div><div class="sub-action-desc">Pull completed rows from SharePoint (Status = Completed, not yet billed). Cross-reference FleetIQ for final costs.</div></div><div class="sub-action-owner">Finance</div></div>
+                <div class="sub-action"><div class="sub-action-num">2</div><div class="sub-action-content"><div class="sub-action-title">Attach supporting documentation</div><div class="sub-action-desc">SRC: per-vehicle rate by coverage type. Travel: actual hours (Mobilize). Repairs: parts + labor per approved WO with receipts.</div></div><div class="sub-action-owner">Finance</div></div>
+                <div class="sub-action"><div class="sub-action-num">3</div><div class="sub-action-content"><div class="sub-action-title">Upload to Amazon Payee Central</div><div class="sub-action-desc">Weekly bulk upload. Each entry references the FleetIQ WO number for reconciliation. Payment terms: Net 30.</div></div><div class="sub-action-owner">Finance</div></div>
+                <div class="sub-action"><div class="sub-action-num">4</div><div class="sub-action-content"><div class="sub-action-title">Mark SharePoint rows as billed</div><div class="sub-action-desc">Update Notes with billing date and Payee Central reference. Full traceability from form submission through payment.</div></div><div class="sub-action-owner">Finance</div></div>
+            </div></div></div>
+        </div>
+    </div>
+
+    <div class="callout success"><div class="callout-icon">&#x1F4CB;</div><div><div class="callout-title">Complete Audit Trail</div><div class="callout-text">Every request &mdash; from DSP form submission through final billing &mdash; is tracked in SharePoint with status progression and linked to FleetIQ work orders for service execution details. Parent/child relationships between inspections and repairs maintained across both systems.</div></div></div>
+</div>
+
+</div><!-- end main -->
+
+<!-- ════ FOOTER ════ -->
+<div class="footer"><div class="footer-card">
+    <div class="footer-title">Key Parameters</div>
+    <div class="footer-grid">
+        <div class="footer-item"><div class="footer-item-label">Pre-Auth Threshold</div><div class="footer-item-value">$500</div><div class="footer-item-note">Repairs &le; $500 proceed without MCS</div></div>
+        <div class="footer-item"><div class="footer-item-label">Documentation SLA</div><div class="footer-item-value">24 Hours</div><div class="footer-item-note">Upload window after service</div></div>
+        <div class="footer-item"><div class="footer-item-label">Payment Terms</div><div class="footer-item-value">Net 30</div><div class="footer-item-note">Via Amazon Payee Central</div></div>
+        <div class="footer-item"><div class="footer-item-label">Systems</div><div class="footer-item-value">SP + FIQ</div><div class="footer-item-note">SharePoint tracks requests, FleetIQ owns WOs</div></div>
+    </div>
+</div></div>
+
+<script>
+// ── Core workflow toggles ──
+function toggleStep(el){ el.classList.toggle('expanded'); }
+function expandAll(){ document.querySelectorAll('.step').forEach(s=>s.classList.add('expanded')); }
+function collapseAll(){ document.querySelectorAll('.step').forEach(s=>s.classList.remove('expanded')); }
+document.querySelectorAll('.pb-step').forEach(s=>{
+    s.addEventListener('click',e=>{e.preventDefault();const t=document.querySelector(s.getAttribute('href'));if(t)t.scrollIntoView({behavior:'smooth',block:'start'})});
+});
+
+// ── Comment System ──
+let comments = {};
+let currentTarget = null;
+let currentCommentType = 'approve';
+
+// Load saved state
+try {
+    const saved = localStorage.getItem('fss_workflow_comments');
+    if(saved) comments = JSON.parse(saved);
+    const name = localStorage.getItem('fss_reviewer_name');
+    if(name) document.getElementById('reviewerName').value = name;
+} catch(e){}
+
+function saveReviewerName(){
+    localStorage.setItem('fss_reviewer_name', document.getElementById('reviewerName').value);
+}
+
+function saveComments(){
+    localStorage.setItem('fss_workflow_comments', JSON.stringify(comments));
+    updateAllBadges();
+}
+
+// Inject comment buttons into phases and steps
+function initCommentButtons(){
+    // Phase-level buttons
+    document.querySelectorAll('.phase-header').forEach(ph => {
+        const phase = ph.closest('.phase');
+        const id = phase.id;
+        const title = ph.querySelector('.phase-title').textContent.trim();
+        const btn = createCommentBtn(id, title);
+        ph.style.position = 'relative';
+        ph.appendChild(btn);
+    });
+
+    // Step-level buttons
+    document.querySelectorAll('.step').forEach((step, idx) => {
+        const phase = step.closest('.phase');
+        const phaseId = phase.id;
+        const stepName = step.querySelector('.step-name');
+        if(!stepName) return;
+        const name = stepName.textContent.trim();
+        const id = phaseId + '_step' + idx;
+        step.setAttribute('data-comment-id', id);
+        const btn = createCommentBtn(id, name);
+        const summary = step.querySelector('.step-summary');
+        const topRow = summary.querySelector('.step-top');
+        topRow.appendChild(btn);
+    });
+
+    updateAllBadges();
+}
+
+function createCommentBtn(targetId, targetName){
+    const btn = document.createElement('button');
+    btn.className = 'comment-btn';
+    btn.setAttribute('data-target', targetId);
+    btn.setAttribute('data-name', targetName);
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span class="btn-label">Comment</span>';
+    btn.onclick = function(e){
+        e.stopPropagation();
+        openCommentPanel(targetId, targetName);
+    };
+    return btn;
+}
+
+function updateAllBadges(){
+    let total = 0;
+    document.querySelectorAll('.comment-btn').forEach(btn => {
+        const tid = btn.getAttribute('data-target');
+        const arr = comments[tid] || [];
+        const countEl = btn.querySelector('.comment-count');
+        if(arr.length > 0){
+            btn.classList.add('has-comments');
+            if(countEl){
+                countEl.textContent = arr.length;
+            } else {
+                const c = document.createElement('span');
+                c.className = 'comment-count';
+                c.textContent = arr.length;
+                btn.appendChild(c);
+            }
+            btn.querySelector('.btn-label').textContent = arr.length;
+            total += arr.length;
+        } else {
+            btn.classList.remove('has-comments');
+            if(countEl) countEl.remove();
+            btn.querySelector('.btn-label').textContent = 'Comment';
+        }
+    });
+    const badge = document.getElementById('totalBadge');
+    if(total > 0){ badge.style.display = 'inline'; badge.textContent = total; }
+    else { badge.style.display = 'none'; }
+}
+
+function openCommentPanel(targetId, targetName){
+    currentTarget = targetId;
+    document.getElementById('panelTitle').textContent = 'Feedback';
+    document.getElementById('panelContext').textContent = targetName;
+    document.getElementById('commentInput').value = '';
+    renderComments();
+    document.getElementById('commentOverlay').classList.add('open');
+    document.getElementById('commentPanel').classList.add('open');
+    setTimeout(()=>document.getElementById('commentInput').focus(), 300);
+}
+
+function closeCommentPanel(){
+    document.getElementById('commentOverlay').classList.remove('open');
+    document.getElementById('commentPanel').classList.remove('open');
+    currentTarget = null;
+}
+
+function setCommentType(btn){
+    document.querySelectorAll('.comment-type-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentCommentType = btn.getAttribute('data-type');
+}
+
+function submitComment(){
+    const text = document.getElementById('commentInput').value.trim();
+    if(!text || !currentTarget) return;
+    const author = document.getElementById('reviewerName').value.trim() || 'Anonymous';
+    if(!comments[currentTarget]) comments[currentTarget] = [];
+    comments[currentTarget].push({
+        id: Date.now(),
+        author: author,
+        text: text,
+        type: currentCommentType,
+        time: new Date().toLocaleString()
+    });
+    saveComments();
+    document.getElementById('commentInput').value = '';
+    renderComments();
+}
+
+function deleteComment(targetId, commentId){
+    if(!comments[targetId]) return;
+    comments[targetId] = comments[targetId].filter(c => c.id !== commentId);
+    if(comments[targetId].length === 0) delete comments[targetId];
+    saveComments();
+    renderComments();
+}
+
+function renderComments(){
+    const body = document.getElementById('panelBody');
+    const arr = comments[currentTarget] || [];
+    if(arr.length === 0){
+        body.innerHTML = '<div class="comment-empty"><div class="comment-empty-icon">💬</div>No comments yet on this section.<br>Use the form below to add feedback.</div>';
+        return;
+    }
+    body.innerHTML = arr.map(c => `
+        <div class="comment-item">
+            <div class="comment-item-header">
+                <span><span class="comment-item-author">${esc(c.author)}</span><span class="comment-item-type ${c.type}">${typeLabel(c.type)}</span></span>
+                <span class="comment-item-time">${esc(c.time)}</span>
+            </div>
+            <div class="comment-item-text">${esc(c.text)}</div>
+            <span class="comment-item-delete" onclick="deleteComment('${currentTarget}', ${c.id})">Remove</span>
+        </div>
+    `).join('');
+    body.scrollTop = body.scrollHeight;
+}
+
+function typeLabel(t){
+    return {approve:'Looks Good', question:'Question', change:'Suggest Change', concern:'Concern'}[t] || t;
+}
+
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ── Export ──
+function exportComments(){
+    const allKeys = Object.keys(comments);
+    if(allKeys.length === 0){ alert('No comments to export yet.'); return; }
+
+    let totalCount = 0;
+    let md = '# FSS SRC Workflow — Review Feedback\n\n';
+    md += `**Exported:** ${new Date().toLocaleString()}\n\n---\n\n`;
+
+    // Group by phase
+    const phaseOrder = ['phase1','phase2','phase3','phase4','phase5','phase6','phase7'];
+    phaseOrder.forEach(pid => {
+        const phaseEl = document.getElementById(pid);
+        if(!phaseEl) return;
+        const phaseTitle = phaseEl.querySelector('.phase-title').textContent.trim();
+
+        // Phase-level comments
+        const phaseComments = comments[pid] || [];
+        // Step-level comments for this phase
+        const stepKeys = allKeys.filter(k => k.startsWith(pid+'_'));
+
+        if(phaseComments.length === 0 && stepKeys.length === 0) return;
+
+        md += `## ${phaseTitle}\n\n`;
+
+        if(phaseComments.length > 0){
+            phaseComments.forEach(c => {
+                md += `- **[${typeLabel(c.type).toUpperCase()}]** ${c.author} (${c.time}): ${c.text}\n`;
+                totalCount++;
+            });
+            md += '\n';
+        }
+
+        stepKeys.forEach(sk => {
+            const btn = document.querySelector(`.comment-btn[data-target="${sk}"]`);
+            const stepName = btn ? btn.getAttribute('data-name') : sk;
+            const stepComments = comments[sk] || [];
+            if(stepComments.length === 0) return;
+            md += `### ${stepName}\n\n`;
+            stepComments.forEach(c => {
+                md += `- **[${typeLabel(c.type).toUpperCase()}]** ${c.author} (${c.time}): ${c.text}\n`;
+                totalCount++;
+            });
+            md += '\n';
+        });
+    });
+
+    md += `---\n\n*Total comments: ${totalCount}*\n`;
+
+    // Download as file
+    const blob = new Blob([md], {type: 'text/markdown'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'FSS_Workflow_Feedback_' + new Date().toISOString().slice(0,10) + '.md';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// Keyboard shortcut: Escape closes panel
+document.addEventListener('keydown', e => {
+    if(e.key === 'Escape') closeCommentPanel();
+    if(e.key === 'Enter' && e.ctrlKey && currentTarget){
+        submitComment();
+    }
+});
+
+// Init on load
+document.addEventListener('DOMContentLoaded', initCommentButtons);
+</script>
+</body>
+</html>
